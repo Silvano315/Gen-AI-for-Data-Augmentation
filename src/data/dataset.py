@@ -1,14 +1,12 @@
 from pathlib import Path
 from typing import Tuple, List, Dict, Optional
-import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset
 from torchvision.datasets import OxfordIIITPet
 from torchvision import transforms
 import plotly.express as px
 import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
-from PIL import Image
 import matplotlib.pyplot as plt
 
 class PetDatasetHandler:
@@ -190,12 +188,10 @@ class PetDatasetHandler:
                                  min(sample_size, len(self.train_dataset)))
         
         for idx in indices:
-            img_path = self.train_dataset.images[idx]
-            with Image.open(img_path) as img:
-                w, h = img.size
-                widths.append(w)
-                heights.append(h)
-                sizes.append(Path(img_path).stat().st_size / (1024 * 1024))  
+            img, _ = self.train_dataset[idx]
+            w, h = img.size
+            widths.append(w)
+            heights.append(h)
                 
         stats = {
             'dimensions': {
@@ -211,12 +207,6 @@ class PetDatasetHandler:
             'aspect_ratio': {
                 'mean': np.mean(np.array(widths) / np.array(heights)),
                 'std': np.std(np.array(widths) / np.array(heights))
-            },
-            'file_size': {
-                'mean_mb': np.mean(sizes),
-                'std_mb': np.std(sizes),
-                'min_mb': np.min(sizes),
-                'max_mb': np.max(sizes)
             }
         }
         
