@@ -51,12 +51,16 @@ class CaptionGenerator:
 
     def generate_caption(self, 
                         image: Union[str, Path, Image.Image],
+                        label: Optional[str] = None,
+                        prompt: str = "Describe this pet, including its breed, color, and distinctive features:",
                         max_length: int = 30,
                         num_beams: int = 4) -> str:
         """Generate caption for a single image.
         
         Args:
             image: Image to caption (path or PIL Image)
+            label: image's label to add breed
+            prompt: prompt text to implement prompt conditioning
             max_length: Maximum length of generated caption
             num_beams: Number of beams for beam search
             
@@ -64,7 +68,7 @@ class CaptionGenerator:
             str: Generated caption
         """
         img = self._load_image(image)
-        inputs = self.processor(img, return_tensors = "pt").to(self.device)
+        inputs = self.processor(img, text=prompt, return_tensors = "pt").to(self.device)
 
         with torch.no_grad():
             outputs = self.model.generate(
@@ -76,6 +80,9 @@ class CaptionGenerator:
 
         caption = self.processor.decode(outputs[0], skip_special_tokens = True)
 
+        if label:
+            caption = f"{caption} This is a {label}."
+
         if isinstance(image, (str, Path)):
             self.captions_cache[str(image)] = caption
 
@@ -83,11 +90,13 @@ class CaptionGenerator:
 
     def process_batch(self, 
                      image_paths: List[Union[str, Path]],
+                     labels: Optional[List[str]] = None,
                      batch_size: int = 16) -> Dict[str, str]:
         """Generate captions for a batch of images.
         
         Args:
             image_paths: List of image paths
+            labels: List of image labels
             batch_size: Size of batches for processing
             
         Returns:
@@ -95,11 +104,15 @@ class CaptionGenerator:
         """
         results = {}
 
+        if labels is None:
+            labels = [None] * len(image_paths)
+
         for i in tqdm(range(0, len(image_paths), batch_size), desc = "Processing batches"):
             batch_paths = image_paths[i : i+batch_size]
+            batch_labels = labels[i:i + batch_size]
 
-            for path in batch_paths:
-                caption = self.generate_caption(path)
+            for path, label in zip(batch_paths, batch_labels):
+                caption = self.generate_caption(path, label=label)
                 results[str(path)] = caption
         
         self.captions_cache.update(results)
