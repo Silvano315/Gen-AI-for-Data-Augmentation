@@ -96,7 +96,7 @@ class CaptionGenerator:
         results = {}
 
         for i in tqdm(range(0, len(image_paths), batch_size), desc = "Processing batches"):
-            batch_paths = image_paths[i, i+batch_size]
+            batch_paths = image_paths[i : i+batch_size]
 
             for path in batch_paths:
                 caption = self.generate_caption(path)
@@ -142,7 +142,7 @@ class CaptionGenerator:
             raise ValueError("No captions available. Generate some captions first.")
             
         if image_paths is None:
-            image_paths = np.random.choise(list(self.captions_cache.keys()),
+            image_paths = np.random.choice(list(self.captions_cache.keys()),
                                             min(num_samples, len(self.captions_cache)),
                                             replace = False)
         
