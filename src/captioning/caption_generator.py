@@ -64,7 +64,7 @@ class CaptionGenerator:
             str: Generated caption
         """
         img = self._load_image(image)
-        inputs = self.processor(img, return_tensors = "pt").to_device(self.device)
+        inputs = self.processor(img, return_tensors = "pt").to(self.device)
 
         with torch.no_grad():
             outputs = self.model.generate(
