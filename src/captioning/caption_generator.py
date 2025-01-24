@@ -30,7 +30,7 @@ class CaptionGenerator:
         """
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.processor = BlipProcessor.from_pretrained(model_name)
-        self.model = BlipForConditionalGeneration.from_pretrained(model_name).to_device(self.device)
+        self.model = BlipForConditionalGeneration.from_pretrained(model_name).to(self.device)
         self.captions_cache = {}
 
     def _load_image(self, image: Union[str, Path, Image.Image]) -> Image.Image:
@@ -138,7 +138,7 @@ class CaptionGenerator:
         Returns:
             go.Figure: Plotly figure with images and captions
         """
-        if not self.caption_cache:
+        if not self.captions_cache:
             raise ValueError("No captions available. Generate some captions first.")
             
         if image_paths is None:
