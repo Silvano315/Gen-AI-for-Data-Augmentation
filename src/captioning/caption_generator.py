@@ -1,11 +1,11 @@
 import torch
 import json
-import plotly.graph_objects as go
 import numpy as np
 from pathlib import Path
 from PIL import Image
+from textwrap import wrap
+from matplotlib import pyplot as plt
 from tqdm import tqdm
-from plotly.subplots import make_subplots
 from transformers import BlipProcessor, BlipForConditionalGeneration
 from typing import List, Dict, Optional, Union
 
@@ -78,7 +78,7 @@ class CaptionGenerator:
         caption = self.processor.decode(outputs[0], skip_special_tokens = True)
 
         if label:
-            caption = f"A {caption[2:]} - This is a {label}."
+            caption = f"{caption} - This is a {label}."
 
         if isinstance(image, (str, Path)):
             self.captions_cache[str(image)] = caption
@@ -137,50 +137,45 @@ class CaptionGenerator:
             self.captions_cache = json.load(f)
 
     def visualize_captions(self, 
-                          num_samples: int = 4,
-                          image_paths: Optional[List[Union[str, Path]]] = None) -> go.Figure:
-        """Visualize images with their generated captions.
-        
-        Args:
-            num_samples: Number of samples to visualize
-            image_paths: Optional specific images to visualize
+                                num_samples: int = 4,
+                                image_paths: Optional[List[Union[str, Path]]] = None,
+                                wrap_width: int = 40) -> None:
+            """Visualize images with their generated captions.
             
-        Returns:
-            go.Figure: Plotly figure with images and captions
-        """
-        if not self.captions_cache:
-            raise ValueError("No captions available. Generate some captions first.")
-            
-        if image_paths is None:
-            image_paths = np.random.choice(list(self.captions_cache.keys()),
-                                            min(num_samples, len(self.captions_cache)),
-                                            replace = False)
-        
-        n_cols = 2
-        n_rows = (len(image_paths) + 1) // 2
-        fig = make_subplots(rows = n_rows, cols = n_cols,
-                            subplot_titles=[self.captions_cache[str(path)] for path in image_paths])
-        
-        for idx, path in enumerate(image_paths):
-            row = idx // n_cols + 1
-            col = idx % n_cols + 1
+            Args:
+                num_samples: Number of samples to visualize
+                image_paths: Optional specific images to visualize
+                wrap_width: Maximum number of characters per line in captions.
+                
+            Returns:
+                None
+            """
+            if not self.captions_cache:
+                raise ValueError("No captions available. Generate some captions first.")
 
-            img = Image.open(path).convert("RGB")
-            img_array = np.array(img)
+            if image_paths is None:
+                image_paths = np.random.choice(list(self.captions_cache.keys()),
+                                                min(num_samples, len(self.captions_cache)),
+                                                replace=False)
 
-            fig.add_trace(
-                go.Image(z = img_array),
-                row = row, col = col
-            )
+            n_cols = 2
+            n_rows = (len(image_paths) + 1) // 2
+            fig, axes = plt.subplots(n_rows, n_cols, figsize=(10, 5 * n_rows))
+            axes = axes.flatten() if n_rows > 1 else [axes]
 
-        fig.update_layout(
-            height=400 * n_rows,
-            width=800,
-            showlegend=False,
-            title_text="Generated Captions"
-        )
-        
-        fig.update_xaxes(showticklabels=False)
-        fig.update_yaxes(showticklabels=False)
-        
-        return fig
+            for idx, path in enumerate(image_paths):
+                img = Image.open(path).convert("RGB")
+                img_array = np.array(img)
+
+                axes[idx].imshow(img_array)
+                axes[idx].axis('off')
+
+                caption = self.captions_cache[str(path)]
+                wrapped_caption = "\n".join(wrap(caption, wrap_width))
+                axes[idx].set_title(wrapped_caption, fontsize=10)
+
+            for ax in axes[len(image_paths):]:
+                ax.axis('off')
+
+            plt.tight_layout()
+            plt.show()
