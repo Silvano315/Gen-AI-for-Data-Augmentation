@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.functional as F
+import torch.optim
 import torchvision.models as models
 from torch.utils.data import DataLoader
 from typing import Tuple, Dict, Optional
@@ -177,8 +178,26 @@ class ConditionalGAN:
             lr=config.learning_rate,
             betas=(config.beta1, config.beta2)
         )
+
+        self.g_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            self.g_optimizer,
+            T_max=200,  
+            eta_min=1e-6
+        )
+        self.d_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            self.d_optimizer,
+            T_max=200,
+            eta_min=1e-6
+        )
         
         self.criterion = nn.BCELoss()
+
+    def scheduler_step(self):
+        """
+        Step the learning rate schedulers at the end of each epoch
+        """
+        self.g_scheduler.step()
+        self.d_scheduler.step()
 
     def train_step(self, 
                   real_images: torch.Tensor,
@@ -227,7 +246,9 @@ class ConditionalGAN:
         
         return {
             "d_loss": d_loss.item(),
-            "g_loss": g_loss.item()
+            "g_loss": g_loss.item(),
+            "d_lr": self.d_optimizer.param_groups[0]['lr'],  
+            "g_lr": self.g_optimizer.param_groups[0]['lr'] 
         }
     
     def generate(self, 
