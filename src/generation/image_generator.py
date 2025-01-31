@@ -111,8 +111,48 @@ class Discriminator(nn.Module):
     def __init__(self, config: GANConfig):
         super().__init__()
         self.config = config
+
+        self.resnet = models.resnet18(pretrained=True)
+        for param in self.resnet.parameters():
+            param.requires_grad = False
+            
+        num_features = self.resnet.fc.in_features
+        self.resnet.fc = nn.Identity()
         
-    pass
+        self.caption_projection = nn.Sequential(
+            nn.Linear(config.caption_dim, num_features),
+            nn.BatchNorm1d(num_features),
+            nn.LeakyReLU(0.2, True)
+        )
+        
+        self.classifier = nn.Sequential(
+            nn.Linear(num_features * 2, num_features),
+            nn.BatchNorm1d(num_features),
+            nn.LeakyReLU(0.2, True),
+            nn.Linear(num_features, 1),
+            nn.Sigmoid()
+        )
+
+    def forward(self, image: torch.Tensor, caption_embedding: torch.Tensor) -> torch.Tensor:
+        """
+        Forward pass of discriminator.
+        
+        Args:
+            image: Input images of shape (batch_size, num_channels, image_size, image_size)
+            caption_embedding: Caption embeddings of shape (batch_size, caption_dim)
+            
+        Returns:
+            Probability predictions of shape (batch_size, 1)
+        """
+
+        image_features = self.resnet(image)
+
+        caption_features = self.caption_projection(caption_embedding)
+
+        combined_features = torch.cat([image_features, caption_features], dim = 1)
+
+        return self.classifier(combined_features)
+    
 
 class ConditionalGAN:
     """Main Conditional GAN class handling training and inference.
@@ -124,4 +164,93 @@ class ConditionalGAN:
         self.config = config
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    pass
+        self.generator = Generator(config).to(self.device)
+        self.discriminator = Discriminator(config).to(self.device)
+        
+        self.g_optimizer = torch.optim.Adam(
+            self.generator.parameters(),
+            lr=config.learning_rate,
+            betas=(config.beta1, config.beta2)
+        )
+        self.d_optimizer = torch.optim.Adam(
+            self.discriminator.parameters(),
+            lr=config.learning_rate,
+            betas=(config.beta1, config.beta2)
+        )
+        
+        self.criterion = nn.BCELoss()
+
+    def train_step(self, 
+                  real_images: torch.Tensor,
+                  caption_embeddings: torch.Tensor) -> Dict[str, float]:
+        """
+        Single training step for both networks.
+        
+        Args:
+            real_images: Batch of real images
+            caption_embeddings: Corresponding caption embeddings
+            
+        Returns:
+            Dictionary containing generator and discriminator losses
+        """
+
+        batch_size = real_images.size(0)
+        real_label = torch.ones(batch_size, 1).to(self.device)
+        fake_label = torch.zeros(batch_size, 1).to(self.device)
+        
+        # Train Discriminator
+        self.d_optimizer.zero_grad()
+        
+        # Real images
+        d_real_output = self.discriminator(real_images, caption_embeddings)
+        d_real_loss = self.criterion(d_real_output, real_label)
+        
+        # Fake images
+        noise = torch.randn(batch_size, self.config.latent_dim).to(self.device)
+        fake_images = self.generator(noise, caption_embeddings)
+        d_fake_output = self.discriminator(fake_images.detach(), caption_embeddings)
+        d_fake_loss = self.criterion(d_fake_output, fake_label)
+        
+        # Loss Discriminator
+        d_loss = d_real_loss + d_fake_loss
+        d_loss.backward()
+        self.d_optimizer.step()
+        
+        # Train Generator
+        self.g_optimizer.zero_grad()
+        
+        g_output = self.discriminator(fake_images, caption_embeddings)
+        g_loss = self.criterion(g_output, real_label)
+        
+        g_loss.backward()
+        self.g_optimizer.step()
+        
+        return {
+            "d_loss": d_loss.item(),
+            "g_loss": g_loss.item()
+        }
+    
+    def generate(self, 
+                caption_embeddings: torch.Tensor,
+                noise: Optional[torch.Tensor] = None) -> torch.Tensor:
+        """
+        Generate images from caption embeddings.
+        
+        Args:
+            caption_embeddings: Caption embeddings to condition on
+            noise: Optional noise vectors (random if not provided)
+            
+        Returns:
+            Generated images
+        """
+
+        self.generator.eval()
+        
+        with torch.no_grad():
+            batch_size = caption_embeddings.size(0)
+            if noise is None:
+                noise = torch.randn(batch_size, self.config.latent_dim).to(self.device)
+            images = self.generator(noise, caption_embeddings)
+            
+        self.generator.train()
+        return images
