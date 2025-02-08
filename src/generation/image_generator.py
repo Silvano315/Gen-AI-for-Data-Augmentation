@@ -4,7 +4,8 @@ import torch.functional as F
 import torch.optim
 import torchvision.models as models
 from torch.utils.data import DataLoader
-from typing import Tuple, Dict, Optional
+from transformers import BlipProcessor, BlipForConditionalGeneration
+from typing import Tuple, Dict, Optional, List
 from dataclasses import dataclass
 
 @dataclass
@@ -161,9 +162,12 @@ class ConditionalGAN:
     Combines Generator and Discriminator networks with training logic.
     """
     
-    def __init__(self, config: GANConfig):
+    def __init__(self, config: GANConfig, blip_model_name: str = "Salesforce/blip-image-captioning-base"):
         self.config = config
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        self.blip_processor = BlipProcessor.from_pretrained(blip_model_name)
+        self.blip_model = BlipForConditionalGeneration.from_pretrained(blip_model_name).to(self.device)
 
         self.generator = Generator(config).to(self.device)
         self.discriminator = Discriminator(config).to(self.device)
@@ -198,6 +202,23 @@ class ConditionalGAN:
         """
         self.g_scheduler.step()
         self.d_scheduler.step()
+
+    def get_caption_embeddings(self, captions: List[str]) -> torch.Tensor:
+        """Convert text captions to embeddings using BLIP.
+        
+        Args:
+            captions: List of caption strings
+            
+        Returns:
+            Tensor of caption embeddings (batch_size, caption_dim)
+        """
+        processed = self.blip_processor(captions, return_tensors="pt", padding=True, truncation=True)
+
+        with torch.no_grad():
+            embeddings = self.blip_model.get_text_features(**processed)
+        
+        return embeddings.to(self.device)
+    
 
     def train_step(self, 
                   real_images: torch.Tensor,
