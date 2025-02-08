@@ -57,14 +57,12 @@ class GANTrainer:
         """Execute single training step."""
         real_images = real_images.to(self.device)
         
-        # TO BE FIXED
         caption_embeddings = self.gan.get_caption_embeddings(captions)
         
         return self.gan.train_step(real_images, caption_embeddings)
     
     def evaluate(self, num_batches: Optional[int] = None) -> Dict[str, float]:
         """Run evaluation loop."""
-        # TO BE FIXED
         self.gan.eval()
         self._run_callbacks('on_evaluate_begin')
         
@@ -76,7 +74,6 @@ class GANTrainer:
                     break
                     
                 real_images = real_images.to(self.device)
-                # TO BE FIXED
                 caption_embeddings = self.gan.get_caption_embeddings(captions)
                 
                 noise = torch.randn(len(real_images), 
@@ -89,7 +86,6 @@ class GANTrainer:
         metrics = self.metrics_tracker.compute()
         
         self._run_callbacks('on_evaluate_end', metrics)
-        # TO BE FIXED
         self.gan.train()
         
         return metrics
@@ -219,14 +215,12 @@ class GANTrainer:
         save_dir = Path(save_dir)
         save_dir.mkdir(parents=True, exist_ok=True)
         
-        # TO BE FIXED
         self.gan.eval()
         with torch.no_grad():
             real_images, captions = next(iter(self.val_dataloader))
             real_images = real_images[:num_samples]
             captions = captions[:num_samples]
             
-            # TO BE FIXED
             caption_embeddings = self.gan.get_caption_embeddings(captions)
             
             if fixed_noise is None:
@@ -262,7 +256,6 @@ class GANTrainer:
                     indent=2
                 )
         
-        # TO BE FIXED
         self.gan.train()
     
     def generate_interpolations(self,
@@ -287,7 +280,6 @@ class GANTrainer:
             real_1, real_2 = real_images[:2]
             caption_1, caption_2 = captions[:2]
             
-            # TO BE FIXED
             caption_emb_1 = self.gan.get_caption_embeddings([caption_1])[0]
             caption_emb_2 = self.gan.get_caption_embeddings([caption_2])[0]
             
@@ -333,5 +325,4 @@ class GANTrainer:
                     "caption_2": caption_2
                 }, f, indent=2)
         
-        # TO BE FIXED
         self.gan.train()
