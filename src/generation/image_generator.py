@@ -203,15 +203,19 @@ class ConditionalGAN:
         self.g_scheduler.step()
         self.d_scheduler.step()
 
-    def get_caption_embeddings(self, captions: List[str]) -> torch.Tensor:
+    def get_caption_embeddings(self, captions) -> torch.Tensor:
         """Convert text captions to embeddings using BLIP.
         
         Args:
-            captions: List of caption strings
+            captions: List or tuple of caption strings
             
         Returns:
             Tensor of caption embeddings (batch_size, caption_dim)
         """
+
+        if isinstance(captions, tuple):
+            captions = list(captions)
+
         processed = self.blip_processor(captions, return_tensors="pt", padding=True, truncation=True)
 
         with torch.no_grad():
