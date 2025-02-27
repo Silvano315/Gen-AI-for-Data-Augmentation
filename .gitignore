@@ -138,6 +138,7 @@ venv.bak/
 
 # Data folder
 
+oxford-iiit-pet/
 .data/*
 .dataset/*
 
