@@ -222,7 +222,7 @@ class ConditionalGAN(nn.Module):
         if isinstance(captions, tuple):
             captions = list(captions)
 
-        inputs = self.blip_processor(text=captions, return_tensors="pt", padding=True, truncation=True)
+        inputs = self.blip_processor(text=captions, return_tensors="pt", padding=True, truncation=True).to(self.device)
 
         with torch.no_grad():
             text_features = self.blip_model.text_encoder(**inputs).last_hidden_state  
