@@ -4,7 +4,7 @@ import torch.functional as F
 import torch.optim
 import torchvision.models as models
 from torch.utils.data import DataLoader
-from transformers import BlipProcessor, BlipForConditionalGeneration
+from transformers import BlipProcessor, BlipModel
 from typing import Tuple, Dict, Optional, List
 from dataclasses import dataclass
 
@@ -167,7 +167,10 @@ class ConditionalGAN:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.blip_processor = BlipProcessor.from_pretrained(blip_model_name)
-        self.blip_model = BlipForConditionalGeneration.from_pretrained(blip_model_name).to(self.device)
+        self.blip_model = BlipModel.from_pretrained(blip_model_name).to(self.device)
+
+        for param in self.blip_model.parameters():
+            param.requires_grad = False
 
         self.generator = Generator(config).to(self.device)
         self.discriminator = Discriminator(config).to(self.device)
