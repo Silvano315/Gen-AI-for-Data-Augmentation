@@ -155,13 +155,14 @@ class Discriminator(nn.Module):
         return self.classifier(combined_features)
     
 
-class ConditionalGAN:
+class ConditionalGAN(nn.Module):
     """Main Conditional GAN class handling training and inference.
     
     Combines Generator and Discriminator networks with training logic.
     """
     
     def __init__(self, config: GANConfig, blip_model_name: str = "Salesforce/blip-image-captioning-base"):
+        super(ConditionalGAN, self).__init__()
         self.config = config
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -229,6 +230,29 @@ class ConditionalGAN:
             sentence_embeddings = text_features[:, 0, :]
 
         return sentence_embeddings
+    
+    def generate_from_text(self, caption_text: str, seed=None):
+        """Generate an image from a text description.
+        
+        Args:
+            caption_text: Text description of the image to generate
+            seed: Optional random seed for reproducibility
+        
+        Returns:
+            Generated image tensor
+        """
+        self.generator.eval()
+        
+        with torch.no_grad():
+            caption_embedding = self.get_caption_embeddings([caption_text])
+            
+            if seed is not None:
+                torch.manual_seed(seed)
+            noise = torch.randn(1, self.config.latent_dim, device=self.device)
+            
+            image = self.generator(noise, caption_embedding)
+        
+        return image[0]
     
 
     def train_step(self, 
