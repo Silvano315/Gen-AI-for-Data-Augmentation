@@ -45,7 +45,7 @@ class GANTrainer:
         self.current_step = 0
         self.stop_training = False
         
-        #self.gan.to(device)
+        self.gan.to(device)
 
     def _run_callbacks(self, hook: str, *args, **kwargs):
         """Execute all callbacks for a given hook."""
