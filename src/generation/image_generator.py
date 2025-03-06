@@ -218,7 +218,6 @@ class ConditionalGAN(nn.Module):
         Returns:
             Tensor of caption embeddings (batch_size, caption_dim)
         """
-
         if isinstance(captions, tuple):
             captions = list(captions)
 
@@ -226,8 +225,9 @@ class ConditionalGAN(nn.Module):
 
         with torch.no_grad():
             text_features = self.blip_model.text_encoder(**inputs).last_hidden_state  
-
             sentence_embeddings = text_features[:, 0, :]
+            
+            sentence_embeddings = sentence_embeddings.to(torch.float32)
 
         return sentence_embeddings
     
