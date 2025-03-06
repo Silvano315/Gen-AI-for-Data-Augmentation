@@ -3,9 +3,8 @@ import torch.nn as nn
 import torch.functional as F
 import torch.optim
 import torchvision.models as models
-from torch.utils.data import DataLoader
-from transformers import BlipProcessor, BlipModel
-from typing import Tuple, Dict, Optional, List
+from transformers import BlipProcessor, BlipForImageTextRetrieval
+from typing import Dict, Optional
 from dataclasses import dataclass
 
 @dataclass
@@ -167,7 +166,10 @@ class ConditionalGAN:
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.blip_processor = BlipProcessor.from_pretrained(blip_model_name)
-        self.blip_model = BlipModel.from_pretrained(blip_model_name).to(self.device)
+        self.blip_model = BlipForImageTextRetrieval.from_pretrained(
+                                "Salesforce/blip-image-captioning-base", 
+                                torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32
+                            ).to(self.device)
 
         for param in self.blip_model.parameters():
             param.requires_grad = False
@@ -219,12 +221,14 @@ class ConditionalGAN:
         if isinstance(captions, tuple):
             captions = list(captions)
 
-        processed = self.blip_processor(captions, return_tensors="pt", padding=True, truncation=True)
+        inputs = self.blip_processor(text=captions, return_tensors="pt", padding=True, truncation=True)
 
         with torch.no_grad():
-            embeddings = self.blip_model.get_text_features(**processed)
-        
-        return embeddings.to(self.device)
+            text_features = self.blip_model.text_encoder(**inputs).last_hidden_state  
+
+            sentence_embeddings = text_features[:, 0, :]
+
+        return sentence_embeddings
     
 
     def train_step(self, 
