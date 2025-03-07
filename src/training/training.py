@@ -239,14 +239,14 @@ class GANTrainer:
                     real,
                     save_dir / f"real_{i}.png",
                     normalize=True,
-                    range=(-1, 1)
+                    value_range=(-1, 1)
                 )
                 
                 save_image(
                     fake,
                     save_dir / f"fake_{i}.png",
                     normalize=True,
-                    range=(-1, 1)
+                    value_range=(-1, 1)
                 )
             
             with open(save_dir / "captions.json", 'w') as f:
