@@ -66,14 +66,16 @@ class FIDScore(BaseMetric):
     def compute(self, real_data: Any = None, generated_data: Any = None) -> float:
         """Compute FID score between accumulated real and generated images."""
 
-        print(f"FID Debug - Real images: shape={self.real_images[0].shape}, dtype={self.real_images[0].dtype}")
-        print(f"FID Debug - Fake images: shape={self.generated_images[0].shape}, dtype={self.generated_images[0].dtype}")
-
         if real_data is not None and generated_data is not None:
             self.update(real_data, generated_data)
         
         if not self.real_images or not self.generated_images:
             raise ValueError("No images accumulated for FID computation")
+        
+        if len(self.real_images) > 0:
+            print(f"FID Debug - Real images: shape={self.real_images[0].shape}, dtype={self.real_images[0].dtype}")
+        if len(self.generated_images) > 0:
+            print(f"FID Debug - Fake images: shape={self.generated_images[0].shape}, dtype={self.generated_images[0].dtype}")
             
         with tempfile.TemporaryDirectory() as real_dir, \
              tempfile.TemporaryDirectory() as fake_dir:
@@ -83,20 +85,27 @@ class FIDScore(BaseMetric):
             for idx, (real, fake) in enumerate(zip(self.real_images, 
                                                  self.generated_images)):
                 
-                if real.ndim == 2 or (real.ndim == 3 and real.shape[2] == 1):
-                    real = np.repeat(real[:, :, np.newaxis], 3, axis=2) if real.ndim == 2 else np.repeat(real, 3, axis=2)
-                
-                if fake.ndim == 2 or (fake.ndim == 3 and fake.shape[2] == 1):
-                    fake = np.repeat(fake[:, :, np.newaxis], 3, axis=2) if fake.ndim == 2 else np.repeat(fake, 3, axis=2)
-                
-                if real.shape[0] != 299 or real.shape[1] != 299:
-                    real = np.array(Image.fromarray(real).resize((299, 299)))
-                
-                if fake.shape[0] != 299 or fake.shape[1] != 299:
-                    fake = np.array(Image.fromarray(fake).resize((299, 299)))
-
-                Image.fromarray(real).save(real_dir / f"{idx}.png")
-                Image.fromarray(fake).save(fake_dir / f"{idx}.png")
+                try:
+                    if real.shape[0] == 3 and real.shape[2] != 3:  
+                        real = np.transpose(real, (1, 2, 0))
+                    
+                    if fake.shape[0] == 3 and fake.shape[2] != 3:  
+                        fake = np.transpose(fake, (1, 2, 0))
+                    
+                    if real.ndim == 2 or (real.ndim == 3 and real.shape[2] == 1):
+                        real = np.repeat(real[:, :, np.newaxis], 3, axis=2) if real.ndim == 2 else np.repeat(real, 3, axis=2)
+                    
+                    if fake.ndim == 2 or (fake.ndim == 3 and fake.shape[2] == 1):
+                        fake = np.repeat(fake[:, :, np.newaxis], 3, axis=2) if fake.ndim == 2 else np.repeat(fake, 3, axis=2)
+                    
+                    if idx < 3:
+                        print(f"After transpose - Real shape: {real.shape}, Fake shape: {fake.shape}")
+                    
+                    Image.fromarray(real).save(real_dir / f"{idx}.png")
+                    Image.fromarray(fake).save(fake_dir / f"{idx}.png")
+                    
+                except Exception as e:
+                    print(f"Error processing image {idx}: {e}")
             
             try:
                 fid_value = fid.compute_fid(str(real_dir), str(fake_dir))
@@ -110,6 +119,23 @@ class FIDScore(BaseMetric):
         """Clear accumulated images."""
         self.real_images = []
         self.generated_images = []
+
+    def _preprocess_images(self, images: torch.Tensor) -> List[np.ndarray]:
+        """Convert tensor images to numpy arrays in correct format."""
+        processed_images = []
+        
+        if isinstance(images, torch.Tensor):
+            images = images.detach().cpu()
+            
+            images = ((images + 1) * 127.5).clamp(0, 255).to(torch.uint8)
+            
+            # Convert from PyTorch format (B, C, H, W) to numpy format (B, H, W, C)
+            images_np = images.permute(0, 2, 3, 1).numpy()
+            
+            for img in images_np:
+                processed_images.append(img)
+        
+        return processed_images
 
 class CLIPScore(BaseMetric):
     """CLIP score implementation for text-image alignment evaluation.
