@@ -65,6 +65,10 @@ class FIDScore(BaseMetric):
     
     def compute(self, real_data: Any = None, generated_data: Any = None) -> float:
         """Compute FID score between accumulated real and generated images."""
+
+        print(f"FID Debug - Real images: shape={self.real_images[0].shape}, dtype={self.real_images[0].dtype}")
+        print(f"FID Debug - Fake images: shape={self.generated_images[0].shape}, dtype={self.generated_images[0].dtype}")
+
         if real_data is not None and generated_data is not None:
             self.update(real_data, generated_data)
         
@@ -78,12 +82,29 @@ class FIDScore(BaseMetric):
             
             for idx, (real, fake) in enumerate(zip(self.real_images, 
                                                  self.generated_images)):
+                
+                if real.ndim == 2 or (real.ndim == 3 and real.shape[2] == 1):
+                    real = np.repeat(real[:, :, np.newaxis], 3, axis=2) if real.ndim == 2 else np.repeat(real, 3, axis=2)
+                
+                if fake.ndim == 2 or (fake.ndim == 3 and fake.shape[2] == 1):
+                    fake = np.repeat(fake[:, :, np.newaxis], 3, axis=2) if fake.ndim == 2 else np.repeat(fake, 3, axis=2)
+                
+                if real.shape[0] != 299 or real.shape[1] != 299:
+                    real = np.array(Image.fromarray(real).resize((299, 299)))
+                
+                if fake.shape[0] != 299 or fake.shape[1] != 299:
+                    fake = np.array(Image.fromarray(fake).resize((299, 299)))
+
                 Image.fromarray(real).save(real_dir / f"{idx}.png")
                 Image.fromarray(fake).save(fake_dir / f"{idx}.png")
             
-            fid_value = fid.compute_fid(str(real_dir), str(fake_dir))
-            
-        return fid_value
+            try:
+                fid_value = fid.compute_fid(str(real_dir), str(fake_dir))
+                return fid_value
+            except Exception as e:
+                print(f"Error computing FID: {e}")
+                # fallback value
+                return float('inf')
     
     def reset(self):
         """Clear accumulated images."""
