@@ -46,14 +46,23 @@ class FIDScore(BaseMetric):
         self.device = device
         self.real_images: List[np.ndarray] = []
         self.generated_images: List[np.ndarray] = []
-        
-    def _preprocess_images(self, images: torch.Tensor) -> np.ndarray:
+    
+    def _preprocess_images(self, images: torch.Tensor) -> List[np.ndarray]:
         """Convert tensor images to numpy arrays in correct format."""
+        processed_images = []
+        
         if isinstance(images, torch.Tensor):
             images = images.detach().cpu()
-            # Convert from [-1, 1] to [0, 255]
-            images = ((images + 1) * 127.5).clamp(0, 255).numpy().astype(np.uint8)
-        return images
+            
+            images = ((images + 1) * 127.5).clamp(0, 255).to(torch.uint8)
+            
+            # Convert from PyTorch format (B, C, H, W) to numpy format (B, H, W, C)
+            images_np = images.permute(0, 2, 3, 1).numpy()
+            
+            for img in images_np:
+                processed_images.append(img)
+        
+        return processed_images
     
     def update(self, real_batch: torch.Tensor, generated_batch: torch.Tensor):
         """Add new batch of images to computation."""
@@ -119,23 +128,6 @@ class FIDScore(BaseMetric):
         """Clear accumulated images."""
         self.real_images = []
         self.generated_images = []
-
-    def _preprocess_images(self, images: torch.Tensor) -> List[np.ndarray]:
-        """Convert tensor images to numpy arrays in correct format."""
-        processed_images = []
-        
-        if isinstance(images, torch.Tensor):
-            images = images.detach().cpu()
-            
-            images = ((images + 1) * 127.5).clamp(0, 255).to(torch.uint8)
-            
-            # Convert from PyTorch format (B, C, H, W) to numpy format (B, H, W, C)
-            images_np = images.permute(0, 2, 3, 1).numpy()
-            
-            for img in images_np:
-                processed_images.append(img)
-        
-        return processed_images
 
 class CLIPScore(BaseMetric):
     """CLIP score implementation for text-image alignment evaluation.
