@@ -160,13 +160,14 @@ class Discriminator(nn.Module):
         # Initialization of weights
         for m in self.modules():
             if isinstance(m, (nn.Conv2d, nn.Linear)):
-                if not isinstance(m, nn.utils.spectral_norm):
+                if hasattr(m, 'weight'):
                     nn.init.kaiming_normal_(m.weight, a=0.2)
                     if m.bias is not None:
                         nn.init.constant_(m.bias, 0)
             elif isinstance(m, (nn.BatchNorm2d, nn.BatchNorm1d)):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
+
 
     def forward(self, image: torch.Tensor, caption_embedding: torch.Tensor) -> torch.Tensor:
         """
