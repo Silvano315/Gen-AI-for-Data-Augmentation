@@ -103,7 +103,7 @@ class Generator(nn.Module):
 
 class Discriminator(nn.Module):
     """
-    Conditional Discriminator network using pretrained ResNet18.
+    Conditional Custom Discriminator network.
     
     Takes images and caption embeddings as input, outputs real/fake predictions.
     Uses frozen ResNet18 for feature extraction followed by conditional classification.
@@ -113,26 +113,60 @@ class Discriminator(nn.Module):
         super().__init__()
         self.config = config
 
-        self.resnet = models.resnet18(pretrained=True)
-        for param in self.resnet.parameters():
-            param.requires_grad = False
+        self.image_encoder = nn.Sequential(
+            # spectral normalization stabilises the training of the GAN and prevents the explosion of gradients
+            nn.utils.spectral_norm(nn.Conv2d(config.num_channels, 64, kernel_size=4, stride=2, padding=1)),
+            nn.LeakyReLU(0.2, inplace=True),
             
-        num_features = self.resnet.fc.in_features
-        self.resnet.fc = nn.Identity()
-        
-        self.caption_projection = nn.Sequential(
-            nn.Linear(config.caption_dim, num_features),
-            nn.BatchNorm1d(num_features),
-            nn.LeakyReLU(0.2, True)
+            nn.utils.spectral_norm(nn.Conv2d(64, 128, kernel_size=4, stride=2, padding=1)),
+            nn.BatchNorm2d(128),
+            nn.LeakyReLU(0.2, inplace=True),
+            
+            nn.utils.spectral_norm(nn.Conv2d(128, 256, kernel_size=4, stride=2, padding=1)),
+            nn.BatchNorm2d(256),
+            nn.LeakyReLU(0.2, inplace=True),
+            
+            nn.utils.spectral_norm(nn.Conv2d(256, 512, kernel_size=4, stride=2, padding=1)),
+            nn.BatchNorm2d(512),
+            nn.LeakyReLU(0.2, inplace=True),
+            
+            nn.utils.spectral_norm(nn.Conv2d(512, 512, kernel_size=4, stride=2, padding=1)),
+            nn.BatchNorm2d(512),
+            nn.LeakyReLU(0.2, inplace=True),
+            
+            nn.Flatten()    # (B, 8192)
         )
-        
-        self.classifier = nn.Sequential(
-            nn.Linear(num_features * 2, num_features),
-            nn.BatchNorm1d(num_features),
-            nn.LeakyReLU(0.2, True),
-            nn.Linear(num_features, 1),
+
+        # Process of embedding the caption
+        self.caption_encoder = nn.Sequential(
+            nn.utils.spectral_norm(nn.Linear(config.caption_dim, 512)),
+            nn.LeakyReLU(0.2, inplace=True)
+        )
+
+        # Conditioning and classification
+        self.combined_encoder = nn.Sequential(
+            nn.utils.spectral_norm(nn.Linear(8192 + 512, 2048)),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Dropout(0.3),
+            
+            nn.utils.spectral_norm(nn.Linear(2048, 1024)),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Dropout(0.3),
+            
+            nn.utils.spectral_norm(nn.Linear(1024, 1)),
             nn.Sigmoid()
         )
+
+        # Initialization of weights
+        for m in self.modules():
+            if isinstance(m, (nn.Conv2d, nn.Linear)):
+                if not isinstance(m, nn.utils.spectral_norm):
+                    nn.init.kaiming_normal_(m.weight, a=0.2)
+                    if m.bias is not None:
+                        nn.init.constant_(m.bias, 0)
+            elif isinstance(m, (nn.BatchNorm2d, nn.BatchNorm1d)):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
 
     def forward(self, image: torch.Tensor, caption_embedding: torch.Tensor) -> torch.Tensor:
         """
@@ -146,13 +180,13 @@ class Discriminator(nn.Module):
             Probability predictions of shape (batch_size, 1)
         """
 
-        image_features = self.resnet(image)
+        image_features = self.image_encoder(image)
 
-        caption_features = self.caption_projection(caption_embedding)
+        caption_features = self.caption_encoder(caption_embedding)
 
         combined_features = torch.cat([image_features, caption_features], dim = 1)
 
-        return self.classifier(combined_features)
+        return self.combined_encoder(combined_features)
     
 
 class ConditionalGAN(nn.Module):
