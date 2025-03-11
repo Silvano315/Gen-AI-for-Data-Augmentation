@@ -31,7 +31,8 @@ class BLIP2CaptionGenerator:
         self.processor = Blip2Processor.from_pretrained(model_name)
         self.model = Blip2ForConditionalGeneration.from_pretrained(
             model_name, 
-            torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32
+            #torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32
+            torch_dtype=torch.float32
         ).to(self.device)
         self.captions_cache = {}
 
@@ -70,7 +71,7 @@ class BLIP2CaptionGenerator:
             str: Generated caption
         """
         img = self._load_image(image)
-        inputs = self.processor(images=img, text=prompt, return_tensors="pt").to(self.device, torch.float16)
+        inputs = self.processor(images=img, text=prompt, return_tensors="pt").to(self.device, torch.float32)
 
         with torch.no_grad():
             outputs = self.model.generate(
