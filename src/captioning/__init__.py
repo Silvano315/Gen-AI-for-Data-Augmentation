@@ -1,1 +1,3 @@
 from .caption_generator import CaptionGenerator
+from .captioning_blip_2 import BLIP2CaptionGenerator
+from .git_caption_generator import GITCaptionGenerator
