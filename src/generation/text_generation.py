@@ -1,5 +1,5 @@
 import torch
-from transformers import AutoModelForSeq2SeqLM, T5TokenizerFast
+from transformers import T5ForConditionalGeneration, T5TokenizerFast
 from typing import List, Dict, Union, Optional
 from pathlib import Path
 import json
@@ -21,7 +21,7 @@ class TextVariationGenerator:
         variations_cache (Dict): Dictionary to store generated variations
     """
     
-    def __init__(self, model_name: str = "google/flan-t5-base"):
+    def __init__(self, model_name: str = "google/flan-t5-large"):
         """
         Initialize the text variation generator.
         
@@ -30,7 +30,7 @@ class TextVariationGenerator:
         """
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.tokenizer = T5TokenizerFast.from_pretrained(model_name)  
-        self.model = AutoModelForSeq2SeqLM.from_pretrained(
+        self.model = T5ForConditionalGeneration.from_pretrained(
             model_name,
             torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32
         ).to(self.device)
@@ -107,23 +107,35 @@ class TextVariationGenerator:
 
         elif prompt_type == "few-shot":
             if animal_type == "cat":
-                prompt = f"""Original: "A white cat sitting on a couch."
-    Variations:
-    * A black cat playing with a toy mouse on the kitchen floor.
-    * A ginger cat stretching lazily in a sunny garden.
-    * A striped tabby curled up asleep on a blue blanket.
+                prompt = f"""TASK: Create significantly different descriptions of the same pet, changing the setting, activity, and details while maintaining the animal's identity.
 
-    Original: "{clean_caption}"
-    Variations:"""
+                              EXAMPLES:
+                              Original: "A white cat sitting on a couch."
+                              New Versions:
+                              1. A black cat playing with a toy mouse on the kitchen floor.
+                              2. A ginger cat stretching lazily in a sunny garden.
+                              3. A striped tabby curled up asleep on a blue blanket.
+
+                              Original: "{clean_caption}"
+                              Create {num_variations} completely different descriptions by changing where the cat is and what it's doing:
+                              New Versions:
+                              1.
+                              """
             else:
-                prompt = f"""Original: "A brown dog standing in the yard."
-    Variations:
-    * A black dog running excitedly at the beach, kicking up sand.
-    * A spotted dog resting under a tree in a park on a sunny day.
-    * A golden dog playing with a ball in a living room with a fireplace.
+                prompt = f"""TASK: Create significantly different descriptions of the same pet, changing the setting, activity, and details while maintaining the animal's identity.
 
-    Original: "{clean_caption}"
-    Variations:"""
+                              EXAMPLES:
+                              Original: "A brown dog standing in the yard."
+                              New Versions:              
+                              1. A black dog running excitedly at the beach, kicking up sand.
+                              2. A spotted dog resting under a tree in a park on a sunny day.
+                              3. A golden dog playing with a ball in a living room with a fireplace.
+
+                              Original: "{clean_caption}"
+                              Create {num_variations} completely different descriptions by changing where the dog is and what it's doing:
+                              New Versions:
+                              1.
+                              """
         
         else:
             prompt = f"Generate {num_variations} different descriptions of this {animal_type}: '{clean_caption}'"
@@ -137,12 +149,13 @@ class TextVariationGenerator:
                 **inputs,
                 max_length=max_length,
                 do_sample=True,
+                repetition_penalty=1.5,
                 temperature=temperature,
                 top_p=0.95,
-                num_return_sequences=num_variations,
-                num_beams=num_variations
+                num_return_sequences=num_variations
+                #num_beams=num_variations
             )
-            
+
             variations = [self.tokenizer.decode(output, skip_special_tokens=True).strip() for output in outputs]
             all_variations.extend(variations)
         
@@ -381,3 +394,31 @@ class TextVariationGenerator:
         """
         with open(load_path, 'r') as f:
             self.variations_cache = json.load(f)
+
+    def test_few_shot_quality(self, caption: str, num_variations: int = 3, temperature: float = 1.5):
+        """
+        Test and display the quality of variations for a caption.
+        
+        Args:
+            caption (str): Caption to test
+            num_variations (int): Number of variations to generate
+            temperature (float): Temperature to use
+            
+        Returns:
+            List[str]: Generated variations
+        """
+        print(f"Original caption: {caption}")
+        print("\nGenerating variations...")
+        
+        variations = self.generate_variations(
+            caption,
+            num_variations=num_variations,
+            temperature=temperature,
+            prompt_type="few-shot"
+        )
+        
+        print("\nGenerated variations:")
+        for i, var in enumerate(variations):
+            print(f"{i+1}. {var}")
+            
+        return variations
