@@ -68,7 +68,7 @@ class TextVariationGenerator:
             temperature (float): Sampling temperature (higher = more diverse)
             preserve_breed (bool): Whether to preserve breed information
             max_length (int): Maximum length of generated variations
-            prompt_type (str): Type of prompt to use ('standard', 'specific', or 'few-shot')
+            prompt_type (str): Type of prompt to use ('standard', 'specific', 'few-shot')
             max_tries (int): Number of attempts to generate variations (useful for higher diversity)
             
         Returns:
@@ -85,40 +85,48 @@ class TextVariationGenerator:
             elif "dog" in caption.lower():
                 animal_type = "dog"
                 
-            caption = re.sub(r"\s*-\s*This is an? [^\.]+\.", "", caption)
+            clean_caption = re.sub(r"\s*-\s*This is an? [^\.]+\.", "", caption)
+        else:
+            clean_caption = caption
+        
+        color_match = re.search(r"\b(white|black|gray|grey|brown|orange|ginger|red|blue|golden|tan|yellow|cream|silver)\b", 
+                                clean_caption.lower())
+        color = color_match.group(1) if color_match else None
         
         if prompt_type == "specific":
-            prompt = f"""Generate {num_variations} descriptions of this {animal_type} that vary significantly in:
-                        - {animal_type.capitalize()}'s pose or position
-                        - Background or environment
-                        - Lighting conditions
-                        - Actions the {animal_type} is performing
+            prompt = f"""Create {num_variations} completely different descriptions of this {animal_type}. 
+    Original: '{clean_caption}'
 
-                        Original description: '{caption}'
+    Each new description should:
+    (A) Change the {animal_type}'s position or pose
+    (B) Change the background or environment
+    (C) Change the lighting or time of day
+    (D) Change what the {animal_type} is doing
 
-                        Give completely different descriptions for each variation."""
+    Give complete, natural sentences for each variation. Do not include numbers or labels."""
 
         elif prompt_type == "few-shot":
             if animal_type == "cat":
                 prompt = f"""Original: "A white cat sitting on a couch."
-                            Variations:
-                            1. A white cat playing with a toy mouse on the kitchen floor.
-                            2. A white cat stretching lazily in a sunny garden.
-                            3. A white cat curled up asleep on a blue blanket.
+    Variations:
+    * A black cat playing with a toy mouse on the kitchen floor.
+    * A ginger cat stretching lazily in a sunny garden.
+    * A striped tabby curled up asleep on a blue blanket.
 
-                            Original: "{caption}"
-                            Variations:"""
+    Original: "{clean_caption}"
+    Variations:"""
             else:
                 prompt = f"""Original: "A brown dog standing in the yard."
-                            Variations:
-                            1. A brown dog running excitedly at the beach, kicking up sand.
-                            2. A brown dog resting under a tree in a park on a sunny day.
-                            3. A brown dog playing with a ball in a living room with a fireplace.
+    Variations:
+    * A black dog running excitedly at the beach, kicking up sand.
+    * A spotted dog resting under a tree in a park on a sunny day.
+    * A golden dog playing with a ball in a living room with a fireplace.
 
-                            Original: "{caption}"
-                            Variations:"""
+    Original: "{clean_caption}"
+    Variations:"""
+        
         else:
-            prompt = f"Generate {num_variations} different descriptions of this {animal_type}: '{caption}'"
+            prompt = f"Generate {num_variations} different descriptions of this {animal_type}: '{clean_caption}'"
         
         all_variations = []
         
@@ -138,25 +146,43 @@ class TextVariationGenerator:
             variations = [self.tokenizer.decode(output, skip_special_tokens=True).strip() for output in outputs]
             all_variations.extend(variations)
         
-        # Post-process
+        # Enhanced post-processing
         processed_variations = []
-        for variation in all_variations:
-            # Remove numbering
-            variation = re.sub(r"^\d+[\.\)]\s*", "", variation)
-            
-            # Remove any "Variation:" prefixes
-            variation = re.sub(r"^Variation:?\s*", "", variation)
-            
-            # Add breed information
-            if preserve_breed and breed:
-                if not re.search(rf"This is an? {breed}\.", variation):
-                    variation = f"{variation} - This is a {breed}."
-                    
-            processed_variations.append(variation)
         
-        # Remove duplicates
-        unique_variations = []
+        for variation in all_variations:
+            if '*' in variation or '\n-' in variation or any(f"{i}." in variation for i in range(1, 10)):
+                split_variations = []
+                
+                if '*' in variation:
+                    split_variations = [v.strip() for v in variation.split('*') if v.strip()]
+                elif '\n-' in variation:
+                    split_variations = [v.strip() for v in variation.split('\n-') if v.strip()]
+                elif any(f"{i}." in variation for i in range(1, 10)):
+                    for i in range(1, 10):
+                        variation = variation.replace(f"{i}. ", f"|||{i}. ")
+                    split_variations = [v.strip() for v in variation.split('|||') if v.strip()]
+                
+                for split_var in split_variations:
+                    clean_var = re.sub(r"^\d+[\.\)]\s*", "", split_var)
+                    clean_var = re.sub(r"^[A-Z][\.\)]\s*", "", clean_var)
+                    
+                    if clean_var and not clean_var.startswith("Variations") and not clean_var.startswith("Original"):
+                        processed_variations.append(clean_var)
+            else:
+                if variation and not variation.startswith("Variations") and not variation.startswith("Original"):
+                    processed_variations.append(variation)
+        
+        final_variations = []
         for var in processed_variations:
+            var = re.sub(r"^Variation:?\s*", "", var)
+            
+            if preserve_breed and breed and not re.search(rf"This is an? {breed}\.", var):
+                var = f"{var} - This is a {breed}."
+                    
+            final_variations.append(var)
+        
+        unique_variations = []
+        for var in final_variations:
             if var not in unique_variations:
                 unique_variations.append(var)
         
@@ -170,8 +196,9 @@ class TextVariationGenerator:
                             target_per_class: int = 150,
                             min_variations: int = 1,
                             max_variations: int = 5,
-                            prompt_type: str = "standard",
-                            temperature: float = 0.8) -> Dict[str, List[str]]:
+                            prompt_type: str = "few-shot",  
+                            temperature: float = 0.9,
+                            max_tries: int = 1) -> Dict[str, List[str]]:
         """
         Process a caption file to generate variations with optional class balancing.
         
@@ -184,8 +211,9 @@ class TextVariationGenerator:
             target_per_class (int): Target number of examples per class
             min_variations (int): Minimum variations to generate per caption
             max_variations (int): Maximum variations to generate per caption
-            prompt_type (str): Type of prompt to use ('standard', 'specific', or 'few-shot')
+            prompt_type (str): Type of prompt to use ('standard', 'specific', 'few-shot')
             temperature (float): Temperature for generation (higher = more diverse)
+            max_tries (int): Number of generation attempts per caption
             
         Returns:
             Dict[str, List[str]]: Dictionary mapping original captions to variations
@@ -222,8 +250,9 @@ class TextVariationGenerator:
             num_variations=num_vars,
             preserve_breed=True,
             prompt_type=prompt_type,
-            temperature=temperature
-            )
+            temperature=temperature,
+            max_tries=max_tries
+        )
             
             results[img_path] = variations
             
@@ -295,6 +324,40 @@ class TextVariationGenerator:
             json.dump(selected_captions, f, indent=2)
         
         return selected_captions
+    
+    def test_prompt_types(self, 
+                        caption: str, 
+                        temperature: float = 0.8,
+                        num_variations: int = 3):
+        """
+        Test different prompt types on a caption and compare the results.
+        
+        Args:
+            caption (str): Caption to generate variations from
+            temperature (float): Temperature to use for generation
+            num_variations (int): Number of variations to generate per type
+            
+        Returns:
+            Dict[str, List[str]]: Results for each prompt type
+        """
+        results = {}
+        
+        for prompt_type in ["standard", "specific", "few-shot"]:
+            print(f"\nTesting prompt type: {prompt_type}")
+            variations = self.generate_variations(
+                caption,
+                num_variations=num_variations,
+                temperature=temperature,
+                prompt_type=prompt_type
+            )
+            
+            print(f"Generated {len(variations)} variations:")
+            for i, var in enumerate(variations):
+                print(f"{i+1}. {var}")
+                
+            results[prompt_type] = variations
+            
+        return results
     
     def save_variations(self, save_path: Union[str, Path]):
         """
