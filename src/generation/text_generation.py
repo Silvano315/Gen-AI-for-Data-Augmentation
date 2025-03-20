@@ -4,6 +4,7 @@ from typing import List, Dict, Union, Optional
 from pathlib import Path
 import json
 import re
+import os
 from tqdm import tqdm
 
 class TextVariationGenerator:
@@ -318,7 +319,8 @@ class TextVariationGenerator:
                 continue
                 
             for var in var_list:
-                var_key = f"{img_path}_var_{len(breed_to_images[breed])}"
+                base_name, ext = os.path.splitext(img_path)
+                var_key = f"{base_name}_var_{len(breed_to_images[breed])}{ext}"
                 breed_to_images[breed].append((var_key, var, False))
         
         selected_captions = {}
