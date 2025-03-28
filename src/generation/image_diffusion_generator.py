@@ -1,11 +1,16 @@
-import torch
+import os
 import json
 import random
 import subprocess
+import torch
 import numpy as np
 import matplotlib.pyplot as plt
+import zipfile
+from datetime import datetime
+from torchmetrics.functional.multimodal import clip_score
 from pathlib import Path
 from PIL import Image
+from tqdm import tqdm
 from typing import List, Dict, Union, Optional
 from diffusers import (
     StableDiffusionPipeline, 
@@ -199,7 +204,8 @@ class DiffusionModelManager:
         min_samples_per_breed: int = 3,
         target_total_samples: Optional[int] = None,
         class_field: str = "breed",
-        resolution: int = 512
+        resolution: int = 512,
+        train_dataset = None 
     ) -> Path:
         """
         Prepare a dataset for LoRA fine-tuning.
@@ -213,6 +219,7 @@ class DiffusionModelManager:
             target_total_samples: Target total number of samples
             class_field: Field name for class information extraction
             resolution: Target resolution for images
+            train_dataset: Optional PyTorch Dataset to filter images (use only trainval split)
             
         Returns:
             Path to prepared dataset
@@ -227,9 +234,18 @@ class DiffusionModelManager:
         
         with open(captions_file, "r") as f:
             captions = json.load(f)
+
+        valid_image_paths = None
+        if train_dataset is not None:
+            valid_image_paths = set()
+            for idx in range(len(train_dataset)):
+                img_path = Path(train_dataset._images[idx])
+                valid_image_paths.add(str(img_path))
+            print(f"Using {len(valid_image_paths)} images from train_dataset (trainval split)")
                 
         breed_samples = {}
         for img_path, caption in captions.items():
+            breed = None
             if " - This is a " in caption:
                 breed = caption.split(" - This is a ")[1].strip(".")
 
@@ -238,9 +254,15 @@ class DiffusionModelManager:
 
                 if breed not in breed_samples:
                     breed_samples[breed] = []
-                
-                img_name = Path(img_path).name
-                full_img_path = Path(images_dir) / img_name
+
+                if valid_image_paths is not None:
+                  full_img_path = Path(images_dir) / Path(img_path).name
+                  if str(full_img_path) not in valid_image_paths:
+                      continue
+                else:
+                  img_name = Path(img_path).name
+                  full_img_path = Path(images_dir) / img_name
+                  
 
                 if full_img_path.exists():
                     breed_samples[breed].append((str(full_img_path), caption))
@@ -657,3 +679,251 @@ class DiffusionModelManager:
             num_inference_steps=num_inference_steps,
             seed=seed
         )
+    
+    def evaluate_clip_score(
+        self,
+        images: Union[List[Image.Image], List[str], str, np.ndarray],
+        prompts: Union[List[str], str],
+        clip_model: str = "openai/clip-vit-base-patch16"
+    ) -> Dict[str, float]:
+        """
+        Evaluate alignment between images and prompts using CLIP score.
+        
+        Args:
+            images: List of PIL images, paths to images, directory, or numpy array
+            prompts: List of prompts or single prompt
+            clip_model: CLIP model to use for evaluation
+            
+        Returns:
+            Dictionary with CLIP scores
+        """
+        if isinstance(images, np.ndarray):
+            images_array = images
+        else:
+            image_list = []
+            if isinstance(images, str):
+                if os.path.isdir(images):
+                    image_paths = [os.path.join(images, f) for f in os.listdir(images) 
+                                if f.endswith(('.png', '.jpg', '.jpeg'))]
+                    image_list = [Image.open(path) for path in image_paths]
+                else:
+                    image_list = [Image.open(images)]
+            elif isinstance(images, list):
+                if all(isinstance(img, str) for img in images):
+                    image_list = [Image.open(img) for img in images]
+                else:
+                    image_list = images
+            
+            images_array = np.stack([np.array(img) for img in image_list])
+        
+        if isinstance(prompts, str):
+            prompts = [prompts] * len(images_array)
+        
+        if len(prompts) != len(images_array):
+            raise ValueError(f"Number of prompts ({len(prompts)}) must match number of images ({len(images_array)})")
+        
+        # Convert to uint8
+        if images_array.dtype != np.uint8:
+            if images_array.max() <= 1.0:
+                images_array = (images_array * 255).astype(np.uint8)
+            else:
+                images_array = images_array.astype(np.uint8)
+        
+        # Convert to torch tensor in format [B, C, H, W]
+        images_tensor = torch.from_numpy(images_array).permute(0, 3, 1, 2)
+        
+        clip_scores = clip_score(images_tensor, prompts, model_name_or_path=clip_model).detach()
+        
+        individual_scores = clip_scores.cpu().numpy().tolist()
+        mean_score = float(clip_scores.mean().item())
+        
+        results = {
+            "mean_clip_score": mean_score,
+            "individual_scores": individual_scores
+        }
+        
+        return results
+    
+    def generate_balanced_dataset(
+        self,
+        variations_file: Union[str, Path],
+        original_dataset_dir: Union[str, Path],
+        target_dir: Union[str, Path] = None,
+        target_samples_per_class: int = 100,
+        guidance_scale: float = 7.5,
+        num_inference_steps: int = 30,
+        seed: int = 42,
+        zip_result: bool = True,
+        train_dataset = None
+    ) -> Path:
+        """
+        Generate a balanced dataset using variations to augment the original dataset.
+        
+        Args:
+            variations_file: Path to JSON file with caption variations
+            original_dataset_dir: Directory with original dataset to balance
+            target_dir: Directory to save generated images
+            target_samples_per_class: Target number of samples per class
+            guidance_scale: Guidance scale for generation
+            num_inference_steps: Number of inference steps
+            seed: Random seed for reproducibility
+            zip_result: Whether to zip the result for download
+            train_dataset: Optional PyTorch Dataset to use for class counting (trainval split)
+            
+        Returns:
+            Path to the generated dataset
+        """
+        if self.current_pipeline is None:
+            raise ValueError("No model loaded. Call load_lora_model() first.")
+        
+        if target_dir is None:
+            target_dir = self.output_dir / "generated_data"
+        else:
+            target_dir = Path(target_dir)
+        target_dir.mkdir(parents = True, exist_ok=True)
+
+        with open(variations_file, "r") as f:
+            variations_data = json.load(f)
+
+        
+        breed_counts = {}
+
+        breed_variations = {}
+        for img_path, variations in variations_data.items():
+            for var in variations:
+                if " - This is a " in var:
+                    breed = var.split(" - This is a ")[1].strip(".")
+                    if breed not in breed_variations:
+                        breed_variations[breed] = []
+                    breed_variations[breed].append(var)
+
+        breed_counts = {}
+        if train_dataset is not None:
+            for idx in range(len(train_dataset)):
+                _, label_idx = train_dataset[idx]
+                breed = train_dataset.classes[label_idx]
+                
+                breed = breed.replace('_', ' ')
+                breed = ' '.join(word.capitalize() for word in breed.split())
+                
+                if breed not in breed_counts:
+                    breed_counts[breed] = 0
+                breed_counts[breed] += 1
+                
+            print(f"Counted {len(breed_counts)} breeds from train_dataset (trainval split)")
+        else:
+            print(f"Counting breeds from original dataset in {original_dataset_dir}")
+            original_dataset_dir = Path(original_dataset_dir)
+            for img_path in original_dataset_dir.glob("**/*.jpg"):
+                filename = img_path.stem
+                breed_name = filename.split('_')[0]
+                
+                # Handle multi-word breeds - TO BE REFACTORED
+                if len(filename.split('_')) > 2:  
+                    breed_name = "_".join(filename.split('_')[:2])
+                if len(filename.split('_')) > 3:  
+                    breed_name = "_".join(filename.split('_')[:3])
+                if len(filename.split('_')) > 4:
+                    breed_name = "_".join(filename.split('_')[:4])
+                
+                breed_name = " ".join(word.capitalize() for word in breed_name.replace('_', ' ').split())
+                
+                if breed_name not in breed_counts:
+                    breed_counts[breed_name] = 0
+                breed_counts[breed_name] += 1
+
+        print(f"Found {len(breed_counts)} breeds in the original dataset")
+        print(f"Breed counts: {breed_counts}")
+
+        breed_to_generate = {}
+        for breed, count in breed_counts.items():
+            if count < target_samples_per_class:
+                breed_to_generate[breed] = target_samples_per_class - count
+            else:
+                breed_to_generate[breed] = 0
+
+        for breed, to_generate in breed_to_generate.items():
+            if to_generate > 0:
+                available_variations = len(breed_variations.get(breed, []))
+                if available_variations < to_generate:
+                    print(f"Warning: Need {to_generate} images for breed '{breed}' but only have {available_variations} variations")
+                    if available_variations == 0:
+                        print(f"  No variations available for breed '{breed}'. Skipping.")
+                    else:
+                        print(f"  Will reuse variations to reach target (may lead to less diversity).")
+    
+        random.seed(seed)
+        generated_files = []
+
+        for breed, to_generate in tqdm(breed_to_generate.items(), desc = "Generating breeds"):
+            if to_generate <= 0 or breed not in breed_variations:
+                continue
+
+            breed_prompts = breed_variations[breed]
+
+            if len(breed_prompts) > to_generate:
+                selected_prompts = random.sample(breed_prompts, to_generate)
+            else:
+                # If we don't have enough variations, repeat some
+                selected_prompts = breed_prompts * (to_generate // len(breed_prompts) + 1)
+                selected_prompts = selected_prompts[:to_generate]
+        
+            print(f"Generating {len(selected_prompts)} images for breed: {breed}")
+        
+            batch_size = 4  #depending on memory
+
+            for batch_idx in range(0, len(selected_prompts), batch_size):
+                batch_prompts = selected_prompts[batch_idx: batch_idx + batch_size]
+
+                generator = torch.Generator(device = self.device).manual_seed(seed + batch_idx)
+
+                batch_results = self.current_pipeline(
+                    batch_prompts,
+                    num_images_per_prompt=1,
+                    guidance_scale=guidance_scale,
+                    num_inference_steps=num_inference_steps,
+                    generator=generator
+                )
+
+                for i, (prompt, image) in enumerate(zip(batch_prompts, batch_results.images)):
+                    img_idx = batch_idx + i
+                    breed_filename = breed.replace(' ', '_')
+                    filename = f"{breed_filename}_gen_{img_idx:04d}.jpg"
+                    save_path = target_dir / filename
+
+                    image.save(save_path)
+                    generated_files.append(save_path)
+                    
+                    with open(target_dir / f"{breed_filename}_gen_{img_idx:04d}.txt", "w") as f:
+                        f.write(prompt)
+
+
+        print(f"Generated {len(generated_files)} images to balance the dataset")
+
+        # Create a zip file
+        if zip_result:
+            zip_path = self.output_dir / f"generated_data_{datetime.now().strftime('%Y%m%d_%H%M%S')}.zip"
+
+            with zipfile.ZipFile(zip_path, "w") as zipf:
+                for file in generated_files:
+                    zipf.write(file, arcname=file.name)
+                
+                for txt_file in target_dir.glob("*.txt"):
+                    zipf.write(txt_file, arcname=txt_file.name)
+
+            print(f"Dataset zipped to {zip_path}")
+
+            try:
+                from google.colab import files
+                files.download(str(zip_path))
+                print("Download started. Check your browser downloads.")
+            except ImportError:
+                print("Not running in Colab. Zip file is available at:", zip_path)
+        
+        return target_dir
+
+
+diffusion_manager = DiffusionModelManager(
+    output_dir="/content/drive/MyDrive/outputs_master_ProfAI",
+    default_model="runwayml/stable-diffusion-v1-5"
+)
