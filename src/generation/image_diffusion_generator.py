@@ -921,9 +921,3 @@ class DiffusionModelManager:
                 print("Not running in Colab. Zip file is available at:", zip_path)
         
         return target_dir
-
-
-diffusion_manager = DiffusionModelManager(
-    output_dir="/content/drive/MyDrive/outputs_master_ProfAI",
-    default_model="runwayml/stable-diffusion-v1-5"
-)
