@@ -3,6 +3,7 @@ import json
 import random
 import subprocess
 import torch
+import time
 import numpy as np
 import matplotlib.pyplot as plt
 import zipfile
@@ -754,7 +755,9 @@ class DiffusionModelManager:
         num_inference_steps: int = 30,
         seed: int = 42,
         zip_result: bool = True,
-        train_dataset = None
+        train_dataset = None,
+        time_limit_hours: float = 2.0,
+        resume_from_breed: Optional[str] = None
     ) -> Path:
         """
         Generate a balanced dataset using variations to augment the original dataset.
@@ -787,7 +790,6 @@ class DiffusionModelManager:
 
         
         breed_counts = {}
-
         breed_variations = {}
         for img_path, variations in variations_data.items():
             for var in variations:
@@ -842,6 +844,24 @@ class DiffusionModelManager:
             else:
                 breed_to_generate[breed] = 0
 
+        start_time = time.time()
+        last_completed_breed = None
+        sorted_breeds = sorted(breed_to_generate.keys())
+        progress_file = target_dir / "generation_progress.txt"
+        resume_mode = resume_from_breed is not None
+        resume_started = not resume_mode
+
+        if progress_file.exists() and resume_mode:
+            with open(progress_file, "r") as f:
+                completed_breeds = [line.strip() for line in f.readlines() if line.strip()]
+        
+            if completed_breeds:
+                print(f"Found {len(completed_breeds)} breeds already completed.")
+                for completed in completed_breeds:
+                    if completed in breed_to_generate:
+                        print(f"Skipping already completed breed: {completed}")
+                        breed_to_generate[completed] = 0
+
         for breed, to_generate in breed_to_generate.items():
             if to_generate > 0:
                 available_variations = len(breed_variations.get(breed, []))
@@ -855,9 +875,26 @@ class DiffusionModelManager:
         random.seed(seed)
         generated_files = []
 
-        for breed, to_generate in tqdm(breed_to_generate.items(), desc = "Generating breeds"):
+        for breed in tqdm(sorted_breeds, desc="Generating breeds"):
+            to_generate = breed_to_generate.get(breed, 0)
             if to_generate <= 0 or breed not in breed_variations:
                 continue
+
+            if resume_mode and not resume_started:
+                if breed == resume_from_breed:
+                    resume_started = True
+                    print(f"Resume generations from breed: {breed}")
+                else:
+                    print(f"Skipping breed: {breed}")
+                    continue
+
+            current_time = time.time()
+            elapsed_hours = (current_time - start_time) / 3600
+            
+            if elapsed_hours >= time_limit_hours:
+                print(f"\nTime limit of {time_limit_hours} hours reached after having compleated {last_completed_breed}")
+                print(f"Hours: {elapsed_hours:.2f}")
+                break
 
             breed_prompts = breed_variations[breed]
 
@@ -897,8 +934,33 @@ class DiffusionModelManager:
                     with open(target_dir / f"{breed_filename}_gen_{img_idx:04d}.txt", "w") as f:
                         f.write(prompt)
 
+            last_completed_breed = breed
+            with open(progress_file, 'a') as f:
+                f.write(f"{breed}\n")  
+            current_time = time.time()
+            elapsed_hours = (current_time - start_time) / 3600
+            if elapsed_hours >= time_limit_hours:
+                print(f"\nTime limit of {time_limit_hours} hours reached after having completed {breed}")
+                print(f"Hours: {elapsed_hours:.2f}")
+                break
 
-        print(f"Generated {len(generated_files)} images to balance the dataset")
+
+        print(f"Generation completed or interrupted after {(time.time() - start_time)/3600:.2f} hours")
+    
+        if last_completed_breed:
+            print(f"Last completed breed: {last_completed_breed}")
+
+            with open(target_dir / "generation_summary.txt", "w") as f:
+                f.write(f"Date and hour: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"Elapsed time: {(time.time() - start_time)/3600:.2f} ore\n")
+                f.write(f"Last completed breed: {last_completed_breed}\n")
+                f.write(f"Breed remaining: {len([b for b, count in breed_to_generate.items() if count > 0 and b > last_completed_breed])}\n")
+                f.write(f"Generated images: {len(generated_files)}\n")
+                f.write("\nTo restart generatiorn, use:\n")
+                last_idx = sorted_breeds.index(last_completed_breed)
+                if last_idx + 1 < len(sorted_breeds):
+                    next_breed = sorted_breeds[last_idx + 1]
+                    f.write(f"resume_from_breed='{next_breed}'\n")
 
         # Create a zip file
         if zip_result:
