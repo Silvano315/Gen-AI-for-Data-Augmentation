@@ -772,6 +772,8 @@ class DiffusionModelManager:
             seed: Random seed for reproducibility
             zip_result: Whether to zip the result for download
             train_dataset: Optional PyTorch Dataset to use for class counting (trainval split)
+            time_limit_hours: run time limit (in hours)
+            resume_from_breed: flag to restart generation from breed in generation_progress.txt
             
         Returns:
             Path to the generated dataset
