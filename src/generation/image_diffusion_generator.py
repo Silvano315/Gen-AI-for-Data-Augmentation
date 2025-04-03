@@ -859,6 +859,32 @@ class DiffusionModelManager:
         
             if completed_breeds:
                 print(f"Found {len(completed_breeds)} breeds already completed.")
+                last_completed_breed = completed_breeds[-1]
+
+                if resume_mode or len(completed_breeds) > 0:
+                    if resume_mode:
+                        next_breed = resume_from_breed
+                    else:
+                        try:
+                            last_idx = sorted_breeds.index(last_completed_breed)
+                            next_breed = sorted_breeds[last_idx + 1] if last_idx + 1 < len(sorted_breeds) else None
+                        except ValueError:
+                            next_breed = sorted_breeds[0] if sorted_breeds else None
+                    if next_breed:
+                        # Remove any partial files of the next breed
+                        next_breed_filename = next_breed.replace(' ', '_')
+                        partial_files = list(target_dir.glob(f"{next_breed_filename}_gen_*.jpg")) + \
+                                        list(target_dir.glob(f"{next_breed_filename}_gen_*.txt"))
+                        
+                        if partial_files:
+                            print(f"Remove {len(partial_files)} partial files for {next_breed}")
+                            for partial_file in partial_files:
+                                try:
+                                    partial_file.unlink()
+                                    print(f"  Removed: {partial_file.name}")
+                                except Exception as e:
+                                    print(f"  Error to remove {partial_file.name}: {e}")
+
                 for completed in completed_breeds:
                     if completed in breed_to_generate:
                         print(f"Skipping already completed breed: {completed}")
