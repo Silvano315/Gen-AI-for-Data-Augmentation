@@ -106,8 +106,8 @@ def plot_confusion_matrix(y_true: np.ndarray, y_pred: np.ndarray, classes: List[
     plt.ylabel('True label')
     plt.xlabel('Predicted label')
     plt.tight_layout()
-    os.makedirs(path_to_save+"images", exist_ok=True)
-    plt.savefig(path_to_save+'images/confusion_matrix.png')
+    os.makedirs(path_to_save+"/images", exist_ok=True)
+    plt.savefig(path_to_save+'/images/confusion_matrix.png')
     plt.close()
 
 def plot_misclassified_images(
@@ -159,8 +159,9 @@ def plot_misclassified_images(
     for idx in range(min(num_images, len(misclassified_images))):
         ax = fig.add_subplot(n, n, idx + 1)
         
-        img = misclassified_images[idx].permute(1, 2, 0)
-        
+        #img = misclassified_images[idx].permute(1, 2, 0)
+        img = misclassified_images[idx].permute(0, 2, 3, 1)
+
         mean_tensor = torch.tensor(mean)
         std_tensor = torch.tensor(std)
         img = img * std_tensor + mean_tensor
