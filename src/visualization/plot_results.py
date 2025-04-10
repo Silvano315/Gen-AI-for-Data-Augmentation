@@ -93,7 +93,7 @@ def plot_confusion_matrix(y_true: np.ndarray, y_pred: np.ndarray, classes: List[
     plt.title('Confusion Matrix')
     plt.colorbar()
     tick_marks = np.arange(len(classes))
-    plt.xticks(tick_marks, classes, rotation=45)
+    plt.xticks(tick_marks, classes)
     plt.yticks(tick_marks, classes)
     
     fmt = 'd'
@@ -159,13 +159,12 @@ def plot_misclassified_images(
     for idx in range(min(num_images, len(misclassified_images))):
         ax = fig.add_subplot(n, n, idx + 1)
         
-        #img = misclassified_images[idx].permute(1, 2, 0)
-        img = misclassified_images[idx].permute(0, 2, 3, 1)
+        img = misclassified_images[idx].permute(1, 2, 0)
 
         mean_tensor = torch.tensor(mean)
         std_tensor = torch.tensor(std)
         img = img * std_tensor + mean_tensor
-        img = torch.clamp(img, 0, 1)
+        #img = torch.clamp(img, 0, 1)
         
         ax.imshow(img)
         
