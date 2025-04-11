@@ -141,6 +141,9 @@ venv.bak/
 oxford-iiit-pet/
 .data/*
 .dataset/*
+results/
+logs/
+output/
 
 # Spyder project settings
 .spyderproject
