@@ -136,14 +136,14 @@ ENV/
 env.bak/
 venv.bak/
 
-# Data folder
+# Folder
 
 oxford-iiit-pet/
 .data/*
 .dataset/*
 results/
 logs/
-output/
+
 
 # Spyder project settings
 .spyderproject
