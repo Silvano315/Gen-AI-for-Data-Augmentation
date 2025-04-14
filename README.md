@@ -133,7 +133,7 @@ Key findings:
 
 ## EXTRA: Conditional GAN
 
-In addition to the diffusion model approach, I initially explored using a Conditional GAN architecture for generating pet images based on text descriptions. This approach offered a potentially faster inference time compared to diffusion models, with the following implementation details:
+In addition to the diffusion model approach, I initially explored using a Conditional GAN architecture for generating pet images based on text descriptions. You can have a look [here](/gen_data.ipynb). This approach offered a potentially faster inference time compared to diffusion models, with the following implementation details:
 1. Architecture
     * Generator: A deep convolutional network with transposed convolutions, taking both noise vectors and BLIP-encoded caption embeddings as input
     * Discriminator: A custom network with spectral normalization for improved stability, conditioning both on images and caption embeddings
